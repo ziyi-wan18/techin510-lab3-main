@@ -1,12 +1,13 @@
 import sqlite3
-
 import streamlit as st
 from pydantic import BaseModel
 import streamlit_pydantic as sp
 
+# Database connection
 con = sqlite3.connect("todoapp.sqlite", isolation_level=None)
 cur = con.cursor()
 
+# Create tasks table if it doesn't exist
 cur.execute(
     """
     CREATE TABLE IF NOT EXISTS tasks (
@@ -18,11 +19,13 @@ cur.execute(
     """
 )
 
+# Task model
 class Task(BaseModel):
     name: str
     description: str
     is_done: bool
 
+# Function to toggle task status
 def toggle_is_done(is_done, row):
     cur.execute(
         """
@@ -31,8 +34,20 @@ def toggle_is_done(is_done, row):
         (is_done, row[0]),
     )
 
+# Function to delete a task
+def delete_task(task_id):
+    cur.execute(
+        """
+        DELETE FROM tasks WHERE id = ?
+        """,
+        (task_id,)
+    )
+
+# Main function to render the app
 def main():
     st.title("Todo App")
+
+    # Task creation form
     data = sp.pydantic_form(key="task_form", model=Task)
     if data:
         cur.execute(
@@ -42,33 +57,25 @@ def main():
             (data.name, data.description, data.is_done),
         )
 
-    data = cur.execute(
-        """
-        SELECT * FROM tasks
-        """
-    ).fetchall()
+    # Search and filter features
+    search_query = st.text_input("Search tasks")
+    filter_status = st.selectbox("Filter by status", ["All", "Done", "Not Done"])
 
-    # HINT: how to implement a Edit button?
-    # if st.query_params.get('id') == "123":
-    #     st.write("Hello 123")
-    #     st.markdown(
-    #         f'<a target="_self" href="/" style="display: inline-block; padding: 6px 10px; background-color: #4CAF50; color: white; text-align: center; text-decoration: none; font-size: 12px; border-radius: 4px;">Back</a>',
-    #         unsafe_allow_html=True,
-    #     )
-    #     return
+    # Fetch tasks based on search and filter
+    query = "SELECT * FROM tasks WHERE name LIKE ?"
+    if filter_status == "Done":
+        query += " AND is_done = 1"
+    elif filter_status == "Not Done":
+        query += " AND is_done = 0"
+    data = cur.execute(query, ('%' + search_query + '%',)).fetchall()
 
-    cols = st.columns(3)
-    cols[0].write("Done?")
-    cols[1].write("Name")
-    cols[2].write("Description")
+    # Display tasks
     for row in data:
-        cols = st.columns(3)
-        cols[0].checkbox('is_done', row[3], label_visibility='hidden', key=row[0], on_change=toggle_is_done, args=(not row[3], row))
+        cols = st.columns(4)
+        done_label = "Done" if row[3] else "Not Done"
+        cols[0].checkbox(done_label, row[3], key=row[0], on_change=toggle_is_done, args=(not row[3], row))
         cols[1].write(row[1])
         cols[2].write(row[2])
-        # cols[2].markdown(
-        #     f'<a target="_self" href="/?id=123" style="display: inline-block; padding: 6px 10px; background-color: #4CAF50; color: white; text-align: center; text-decoration: none; font-size: 12px; border-radius: 4px;">Action Text on Button</a>',
-        #     unsafe_allow_html=True,
-        # )
+        cols[3].button("Delete", key=f"delete_{row[0]}", on_click=delete_task, args=(row[0],))
 
 main()
